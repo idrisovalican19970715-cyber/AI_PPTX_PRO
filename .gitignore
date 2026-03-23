@@ -1,0 +1,25 @@
+# Секреты — никогда в GitHub
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+ENV/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Временные файлы
+*.pptx.bak
+_test_*.jpg
+_test_*.png
+_test_*.pptx
