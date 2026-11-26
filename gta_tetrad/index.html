@@ -1,15 +1,12 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GTA: Тетрадь</title>
+<title>GTA: Notebook</title>
 <style>
-@font-face{font-family:"Caveat";font-weight:400;src:url(fonts/caveat-cyrillic-400-normal.woff2) format("woff2");unicode-range:U+0400-045F}
-@font-face{font-family:"Caveat";font-weight:400;src:url(fonts/caveat-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
-@font-face{font-family:"Caveat";font-weight:700;src:url(fonts/caveat-cyrillic-700-normal.woff2) format("woff2");unicode-range:U+0400-045F}
-@font-face{font-family:"Caveat";font-weight:700;src:url(fonts/caveat-latin-700-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
-@font-face{font-family:"RubikMono";src:url(fonts/rubik-mono-one-cyrillic-400-normal.woff2) format("woff2");unicode-range:U+0400-045F}
-@font-face{font-family:"RubikMono";src:url(fonts/rubik-mono-one-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Caveat";font-weight:400;src:url(fonts/caveat-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Caveat";font-weight:700;src:url(fonts/caveat-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"RubikMono";src:url(fonts/rubik-mono-one-latin-400-normal.woff2) format("woff2")}
 html,body{margin:0;background:#111}
 canvas{display:block;width:100vw;height:auto;max-width:1920px}
 </style>
@@ -18,11 +15,11 @@ canvas{display:block;width:100vw;height:auto;max-width:1920px}
 <canvas id="c" width="1920" height="1080"></canvas>
 <script>
 "use strict";
-const W = 1920, H = 1080, FPS = 24, N = 240, DUR = N / FPS;
+const W = 1920, H = 1080, FPS = 24, N = 720, DUR = N / FPS;
 const out = document.getElementById("c"), octx = out.getContext("2d");
 const mk = () => { const c = document.createElement("canvas"); c.width = W; c.height = H; return c; };
-const cA = mk(), cB = mk(), cS = mk();
-const aCtx = cA.getContext("2d"), bCtx = cB.getContext("2d"), sCtx = cS.getContext("2d");
+const cA = mk(), cB = mk(), cS = mk(), cU = mk();
+const aCtx = cA.getContext("2d"), bCtx = cB.getContext("2d"), sCtx = cS.getContext("2d"), uCtx = cU.getContext("2d");
 
 // ---------- math ----------
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -33,7 +30,6 @@ const easeOutBack = k => { k = clamp(k); const c = 1.9; return 1 + (c + 1) * Mat
 const easeOutCubic = k => 1 - Math.pow(1 - clamp(k), 3);
 function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
 function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 100000) / 100000; }; }
-// monotone cubic interpolation
 function monotone(keys) {
   const n = keys.length, xs = keys.map(k => k[0]), ys = keys.map(k => k[1]);
   const d = [], m = [];
@@ -53,110 +49,145 @@ function monotone(keys) {
     return (2 * k3 - 3 * k2 + 1) * ys[i] + (k3 - 2 * k2 + k) * h * m[i] + (-2 * k3 + 3 * k2) * ys[i + 1] + (k3 - k2) * h * m[i + 1];
   };
 }
-
-// ---------- story timing ----------
-const T = {
-  hop: 1.05, go: 1.5, penIn: 2.0, stars: [2.36, 2.86, 3.36], jump0: 4.5, jump1: 5.5, stop: 6.0,
-  out: 6.05, hide: 6.5, penDown1: 6.75, turn0: 7.8, turn1: 8.85, q0: 9.0, q1: 9.45, cap: 9.15
-};
-const LANE = 620, MARGIN = 4250, SPINE = 4700;
-const QX = 5700, QY = 690;
-const BLOT = { x: 5860, y: 575, r: 175 };
-const carGroundX = monotone([[0, 900], [1.5, 900], [2.0, 1180], [3.0, 2250], [4.0, 3480], [4.5, 4050], [5.5, 4980], [5.75, 5180], [6.0, 5250], [20, 5250]]);
-function jumpU(t) { const v = clamp((t - T.jump0) / (T.jump1 - T.jump0)); return v + 0.62 * Math.sin(2 * Math.PI * v) / (2 * Math.PI); }
-function laneY(x) {
-  const wav = 38 * Math.sin(x / 260) * smr(x, 1200, 1700) * (1 - smr(x, 3500, 3850));
-  return LANE + wav;
+function keyLerp(keys, t) { // keys: [t, ...values], linear
+  if (t <= keys[0][0]) return keys[0].slice(1);
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i], b = keys[i + 1];
+    if (t <= b[0]) { const k = (t - a[0]) / (b[0] - a[0]); return a.slice(1).map((v, j) => lerp(v, b[j + 1], k)); }
+  }
+  return keys[keys.length - 1].slice(1);
 }
+
+// ---------- story timing (120 BPM; beats every 0.5 s) ----------
+const T = {
+  notice: 0.95, hop: 2.3, go: 3.0, penIn: 3.6, pops: [5.0, 6.0, 11.0],
+  eq0: 8.55, eq1: 10.25, strikes: [12.5, 13.5, 14.5], dodge: [-1, 1, -1],
+  jump0: 16.0, jump1: 17.0, stop: 17.5, out: 17.55, hide: 18.0,
+  search: 18.6, noticeBlot: 20.6, raise0: 21.6, turn0: 23.0, turn1: 24.1,
+  q0: 24.7, q1: 25.2, cap: 25.5, logo: 26.4, peel0: 27.0, peel1: 28.6
+};
+T.stars = T.pops.map(p => p - 0.14);
+const LANE = 620, RAMP0 = 13500, RAMP1 = 13740, MARGIN = 13850, SPINE = 14300, LAND = 14650;
+const BLOT = { x: 15510, y: 575, r: 175 };
+const QX = 15560, QY = 690;
+const EQ = { x: 6400, y: 930 };
+const carGroundX = monotone([[0, 900], [3.0, 900], [3.5, 1180], [8.5, 6300], [11.5, 9400], [15.5, 13200], [16.0, RAMP1], [17.0, LAND], [17.25, 14830], [17.5, 14900], [40, 14900]]);
+function jumpU(t) { const v = clamp((t - T.jump0) / (T.jump1 - T.jump0)); return v + 0.62 * Math.sin(2 * Math.PI * v) / (2 * Math.PI); }
+function laneY(x) { return LANE + 38 * Math.sin(x / 260) * smr(x, 1200, 1700) * (1 - smr(x, RAMP0 - 450, RAMP0 - 60)); }
+function dodgeShape(t, s) { return smr(t, s - 0.26, s - 0.03) * (1 - smr(t, s + 0.25, s + 0.8)); }
+function dodgeY(t) { let y = 0; T.strikes.forEach((s, i) => y += T.dodge[i] * 160 * dodgeShape(t, s)); return y; }
 function car(t) {
   let x = carGroundX(t), arc = 0, rot = 0, scl = 1;
-  if (t > T.jump0 && t < T.jump1) {
-    const u = jumpU(t); x = lerp(4050, 4980, u); arc = 400 * 4 * u * (1 - u);
-    rot = -0.24 * (1 - 2 * u) ; scl = 1 + 0.55 * 4 * u * (1 - u);
-  } else if (t > 3.9 && t <= T.jump0) {
-    const k = smr(t, 4.12, 4.5); arc = 70 * k * k; rot = -0.2 * k; // climbing ramp
-  }
-  const y = laneY(x) - arc;
-  // slope tilt in chase
-  if (!(t > T.jump0 && t < T.jump1) && t < 3.9) {
-    const s = (laneY(x + 5) - laneY(x - 5)) / 10; rot += Math.atan(s);
-  }
-  // landing squash
+  const inJump = t > T.jump0 && t < T.jump1;
+  if (inJump) {
+    const u = jumpU(t); x = lerp(RAMP1, LAND, u); arc = 70 * (1 - u) + 400 * 4 * u * (1 - u);
+    rot = -0.26 * (1 - 2 * u); scl = 1 + 0.55 * 4 * u * (1 - u);
+  } else if (t < T.jump0 && x > RAMP0) { const k = clamp((x - RAMP0) / (RAMP1 - RAMP0)); arc = 70 * k; rot = -0.28 * smr(k, 0, 0.12); }
+  let y = laneY(x) - arc + dodgeY(t);
+  if (!inJump && x < RAMP0) { const s = (laneY(x + 5) - laneY(x - 5)) / 10; rot += Math.atan(s); rot += (dodgeY(t + 0.02) - dodgeY(t - 0.02)) / 0.04 * 0.00035; }
   let sq = 0;
   if (t >= T.jump1) { const k = t - T.jump1; sq = 0.28 * Math.exp(-k * 9) * Math.cos(k * 32); rot += 0.08 * Math.exp(-k * 7) * Math.sin(k * 26); }
-  if (t >= T.hop && t < T.hop + 0.5) { const k = t - T.hop - 0.22; if (k > 0) sq += 0.22 * Math.exp(-k * 10) * Math.cos(k * 30); }
-  if (t > T.stop - 0.25 && t < T.stop + 0.5) { const k = t - (T.stop - 0.05); rot += 0.07 * Math.exp(-Math.abs(k) * 8) * Math.sin(k * 25 + 0.5) * (k > -0.2 ? 1 : 0); }
+  if (t >= T.hop + 0.25 && t < T.hop + 0.8) { const k = t - T.hop - 0.25; sq += 0.22 * Math.exp(-k * 10) * Math.cos(k * 30); }
+  if (t > 2.6 && t < T.go) { x += 3 * Math.sin(t * 90); rot += 0.012 * Math.sin(t * 70); sq += 0.03 * Math.sin(t * 60); } // revving
+  if (t > T.stop - 0.25 && t < T.stop + 0.5) { const k = t - (T.stop - 0.05); if (k > -0.2) rot += 0.07 * Math.exp(-Math.abs(k) * 8) * Math.sin(k * 25 + 0.5); }
   const v = (carGroundX(t + 0.01) - carGroundX(t - 0.01)) / 0.02;
   return { x, y, rot, scl, sq, arc, v };
 }
 
-// ---------- pen ----------
-function pen(t) {
-  let x, y, h = 0, ang = -2.35, down = false;
-  if (t < 6.75) {
-    const tt = t - 0.5;
-    const c = car(Math.max(tt, 0));
-    x = carGroundX(Math.max(tt, 0)) - 700 * (1 - easeOutCubic((t - T.penIn) / 0.55));
-    y = laneY(x) + 8 + 22 * Math.sin(t * 9.0);
-    if (t < T.penIn) { x = 300; y = LANE; h = 400; }
-    down = t > T.penIn + 0.05;
-    h = down ? 0 : 300 * (1 - smr(t, T.penIn - 0.2, T.penIn + 0.05));
-    ang = -2.45 + 0.12 * Math.sin(t * 5.3);
-    // star flick: quick lift on each star
-    for (const s of T.stars) { const k = (t - s + 0.05) / 0.3; if (k > 0 && k < 1) { h += 26 * Math.sin(Math.PI * k); ang += 0.25 * Math.sin(2 * Math.PI * k); } }
-    down = down && h < 4;
-  } else {
-    // search around blot
-    const k = t - 6.75;
-    const ax = lerp(carGroundX(6.03), 5560, smr(t, 6.75, 7.05));
-    x = ax + 70 * Math.sin(k * 7.5) * smr(t, 6.9, 7.1);
-    y = LANE - 10 + 60 * Math.sin(k * 4.3 + 1);
-    h = 40 + 10 * Math.sin(k * 11);
-    ang = -2.4 + 0.5 * Math.sin(k * 6.2); // sniff swivel
-    if (t > T.turn0) { // jerk up as page turns
-      const j = smr(t, T.turn0, T.turn0 + 0.35);
-      h += 240 * j; x -= 120 * j; y -= 160 * j; ang = lerp(ang, -2.0, j);
-    }
-    if (t > 8.55) { // comes back down to new page, draws "?"
-      const d = smr(t, 8.55, T.q0);
-      const qx = QX, qy = QY;
-      const qp = qPath((t - T.q0) / (T.q1 - T.q0));
-      x = lerp(x, qx + qp[0], d); y = lerp(y, qy + qp[1], d); h = lerp(h, 0, d); ang = lerp(ang, -2.3, d);
-      if (t > T.q1 + 0.05) { // confused tilt, then leaves
-        const e = smr(t, 9.55, 10.0);
-        h += 30 * smr(t, T.q1, T.q1 + 0.15) + 400 * e;
-        x -= 900 * e * e; y -= 700 * e * e; ang += 0.35 * Math.sin((t - T.q1) * 14) * (1 - e);
-      }
-      down = t > T.q0 && t < T.q1;
-    }
-  }
-  return { x, y, h, ang, down };
-}
-// question mark path in local coords, k in [0,1]
+// ---------- pen (precomputed path; it leaves ink wherever h ~ 0) ----------
+function follow(t, lag) { const x = carGroundX(Math.max(t - lag, 0)); return [x, laneY(x) + 8 + 22 * Math.sin(t * 9)]; }
 const QPTS = (() => {
-  const p = []; for (let i = 0; i <= 40; i++) { const a = Math.PI * 1.15 - i / 40 * Math.PI * 1.6; p.push([62 * Math.cos(a), -150 + 62 * Math.sin(a) * -1]); }
+  const p = []; for (let i = 0; i <= 40; i++) { const a = Math.PI * 1.15 - i / 40 * Math.PI * 1.6; p.push([62 * Math.cos(a), -150 - 62 * Math.sin(a)]); }
   const last = p[p.length - 1]; p.push([last[0] - 10, last[1] + 40]); p.push([0, -30]); p.push([0, 10]);
   return p;
 })();
-function qPath(k) {
-  k = clamp(k); const f = k * (QPTS.length - 1), i = Math.floor(f), r = f - i;
-  const a = QPTS[i], b = QPTS[Math.min(i + 1, QPTS.length - 1)];
-  return [lerp(a[0], b[0], r), lerp(a[1], b[1], r)];
+function qPath(k) { k = clamp(k); const f = k * (QPTS.length - 1), i = Math.floor(f), r = f - i; const a = QPTS[i], b = QPTS[Math.min(i + 1, QPTS.length - 1)]; return [lerp(a[0], b[0], r), lerp(a[1], b[1], r)]; }
+let EQK = null;
+function penRaw(t) {
+  let x, y, h = 0, ang = -2.45 + 0.12 * Math.sin(t * 5.3);
+  if (t < T.eq0) {
+    [x, y] = follow(t, 0.5);
+    x -= 700 * (1 - easeOutCubic((t - T.penIn) / 0.55));
+    h = 300 * (1 - smr(t, T.penIn - 0.25, T.penIn + 0.02));
+  } else if (t < T.eq1) {
+    if (!EQK) {
+      const f = follow(T.eq0, 0.5), X = EQ.x, Y = EQ.y;
+      EQK = [[T.eq0, f[0], f[1], 0], [8.75, X + 305, Y - 62, 45], [8.8, X + 305, Y - 62, 0], [8.95, X + 372, Y + 6, 0], [9.0, X + 372, Y + 6, 30], [9.05, X + 372, Y - 62, 30], [9.08, X + 372, Y - 62, 0], [9.22, X + 305, Y + 6, 0], [9.28, X + 305, Y + 6, 45],
+        [9.36, X + 358, Y - 165, 45], [9.4, X + 358, Y - 165, 0], [9.52, X + 322, Y - 105, 0], [9.62, X + 378, Y - 105, 0], [9.66, X + 378, Y - 105, 35], [9.72, X + 360, Y - 140, 35], [9.75, X + 360, Y - 140, 0], [9.88, X + 360, Y - 80, 0], [9.92, X + 360, Y - 80, 35],
+        [9.98, X + 420, Y - 50, 35], [10.0, X + 420, Y - 50, 0], [10.06, X + 440, Y - 25, 0], [10.18, X + 490, Y - 90, 0], [T.eq1, X + 490, Y - 90, 60]];
+    }
+    [x, y, h] = keyLerp(EQK, t);
+    ang = -2.35 + 0.18 * Math.sin(t * 23);
+  } else if (t < T.search) {
+    const f = follow(t, 0.45), b = sm(smr(t, T.eq1, 11.7));
+    const e = EQK[EQK.length - 1];
+    x = lerp(e[1], f[0], b); y = lerp(e[2], f[1], b); h = 60 * (1 - smr(t, T.eq1, T.eq1 + 0.25));
+    ang = -2.5 + 0.12 * Math.sin(t * 7);
+    T.strikes.forEach((s, i) => {
+      if (t > s - 0.55 && t < s + 0.45) {
+        const tx = carGroundX(s), ty = laneY(tx);
+        const k = smr(t, s - 0.55, s - 0.08) * (1 - smr(t, s + 0.15, s + 0.45));
+        x = lerp(x, tx - 40, k); y = lerp(y, ty, k);
+        h += 190 * Math.sin(Math.PI * clamp((t - (s - 0.55)) / 0.52)) * (t < s - 0.03 ? 1 : 0);
+        if (t > s - 0.03 && t < s + 0.14) { const q = (t - s + 0.03) / 0.17; x += 70 * q; y += 45 * q; } // slash mark
+        if (t >= s + 0.14) h += 70 * Math.sin(Math.PI * clamp((t - s - 0.14) / 0.31));
+        ang += 0.35 * Math.sin(Math.PI * clamp((t - (s - 0.55)) / 0.7));
+      }
+    });
+  } else {
+    const f = follow(t, 0.45), k = t - T.search;
+    let sx = lerp(14900, 15160, smr(t, T.search, T.search + 0.3));
+    const still = 1 - smr(t, T.noticeBlot - 0.1, T.noticeBlot + 0.1);
+    sx += 70 * Math.sin(k * 7.5) * smr(t, T.search + 0.2, T.search + 0.5) * still;
+    let sy = LANE - 10 + 60 * Math.sin(k * 4.3 + 1) * still;
+    let sh = 40 + 10 * Math.sin(k * 11) * still, sa = -2.4 + 0.5 * Math.sin(k * 6.2) * still;
+    // noticed the blot: creep closer, then wind up a stab
+    const ap = smr(t, 20.8, T.raise0);
+    sx = lerp(sx, 15300, ap); sy = lerp(sy, 585, ap); sa = lerp(sa, -2.2, ap);
+    const r = smr(t, T.raise0, 22.9);
+    sh += 260 * r + 6 * Math.sin(t * 60) * r; sx -= 60 * r; sa -= 0.25 * r;
+    const bl = smr(t, T.search, T.search + 0.4);
+    x = lerp(f[0], sx, bl); y = lerp(f[1], sy, bl); h = lerp(0, sh, bl); ang = lerp(ang, sa, bl);
+    if (t > T.turn0) { const j = smr(t, T.turn0, T.turn0 + 0.35); h += 200 * j; x -= 120 * j; y -= 160 * j; ang = lerp(ang, -2.0, j); }
+    if (t > 23.9) {
+      const d = smr(t, 23.9, T.q0), qp = qPath((t - T.q0) / (T.q1 - T.q0));
+      x = lerp(x, QX + qp[0], d); y = lerp(y, QY + qp[1], d); h = lerp(h, 0, d); ang = lerp(ang, -2.3, d);
+      if (t > T.q1 + 0.03) {
+        const e = smr(t, 25.6, 26.3);
+        h += 30 * smr(t, T.q1, T.q1 + 0.15) + 400 * e; x -= 900 * e * e; y -= 700 * e * e;
+        ang += 0.35 * Math.sin((t - T.q1) * 14) * (1 - e);
+      }
+    }
+  }
+  // star flicks (the pen "signs" each wanted star)
+  for (const s of T.stars) { const k = (t - s + 0.05) / 0.3; if (k > 0 && k < 1) { h += 26 * Math.sin(Math.PI * k); ang += 0.25 * Math.sin(2 * Math.PI * k); } }
+  if (t < T.penIn - 0.3) { x = -9999; h = 400; }
+  return [x, y, h, ang];
+}
+const PR = 240;
+const PEN = (() => { const a = []; for (let i = 0; i <= DUR * PR + 10; i++) a.push(penRaw(i / PR)); return a; })();
+function pen(t) {
+  const f = clamp(t * PR, 0, PEN.length - 1), i = Math.floor(f), r = f - i, a = PEN[i], b = PEN[Math.min(i + 1, PEN.length - 1)];
+  const v = a.map((q, j) => lerp(q, b[j], r));
+  return { x: v[0], y: v[1], h: v[2], ang: v[3], down: v[2] < 3 && v[0] > -9000 };
 }
 
 // ---------- camera (spring-smoothed, precomputed) ----------
+function strikeSig(t) { let s = 0; T.strikes.forEach((x, i) => s += T.dodge[i] * dodgeShape(t, x)); return s; }
 function camTarget(t) {
   const c = car(t);
-  if (t < T.go) return [lerp(780, 860, smr(t, 0, 1.5)), 470, lerp(1.6, 1.32, smr(t, 0, 1.4)), lerp(-0.11, -0.03, smr(t, 0, 1.3))];
-  if (t < 4.2) { const px = carGroundX(Math.max(t - 0.5, 0)); return [(c.x + px) / 2 + 40, 545, lerp(1.32, 1.18, smr(t, 1.5, 2.3)), 0.035 * Math.sin(t * 2.1)]; }
-  if (t < 6.0) { const a = c.arc / 400; return [c.x + 60, c.y - 40, lerp(1.12, 0.86, sm(a * 1.6)), -0.13 * sm(a * 1.4)]; }
-  if (t < T.turn0) return [5640, 555, 1.16, 0.025];
-  return [5700, 650, lerp(1.16, 1.3, smr(t, 8.6, 10)), lerp(0.025, -0.02, smr(t, 8.6, 10))];
+  if (t < T.go) return [lerp(760, 880, smr(t, 0, 2.9)), 470, lerp(1.6, 1.32, smr(t, 0, 2.6)), lerp(-0.1, -0.02, smr(t, 0, 2.6))];
+  if (t < T.eq0 + 0.05) { const px = carGroundX(Math.max(t - 0.5, 0)); return [(c.x + px) / 2 + 40, 545, lerp(1.32, 1.18, smr(t, 3, 3.8)), 0.035 * Math.sin(t * 2.1)]; }
+  if (t < T.eq1) return [EQ.x + 330, 800, 1.42, 0.05];
+  if (t < 15.4) { const px = pen(t).x, wc = t < 12.0 ? lerp(0.85, 0.5, smr(t, 11.2, 12.0)) : 0.5; return [c.x * wc + px * (1 - wc) + 40, 560, t < 11.9 ? 1.1 : 1.26, 0.035 * Math.sin(t * 2.1) + 0.07 * strikeSig(t)]; }
+  if (t < T.stop) { const a = c.arc / 400; return [c.x + 60, c.y - 40, lerp(1.12, 0.86, sm(a * 1.6)), -0.13 * sm(a * 1.4)]; }
+  if (t < T.turn0) return [15420, 560, lerp(1.16, 1.34, smr(t, 21.2, 23.0)), lerp(0.025, -0.03, smr(t, 21.2, 23))];
+  return [QX, 650, lerp(1.16, 1.3, smr(t, 24, 30)), lerp(0.025, -0.02, smr(t, 24, 30))];
 }
 const CAM = (() => {
   const steps = Math.ceil(DUR * 240) + 10, arr = [];
   let p = camTarget(0).slice(), v = [0, 0, 0, 0];
-  const w = [7.5, 6, 5, 5];
+  const w = [7, 6, 5, 6];
   for (let i = 0; i <= steps; i++) {
     const t = i / 240, g = camTarget(t), dt = 1 / 240;
     for (let j = 0; j < 4; j++) { const a = w[j] * w[j] * (g[j] - p[j]) - 2 * w[j] * v[j]; v[j] += a * dt; p[j] += v[j] * dt; }
@@ -167,14 +198,12 @@ const CAM = (() => {
 function cam(t) {
   const f = clamp(t * 240, 0, CAM.length - 1), i = Math.floor(f), r = f - i, a = CAM[i], b = CAM[Math.min(i + 1, CAM.length - 1)];
   const c = a.map((x, j) => lerp(x, b[j], r));
-  // handheld micro drift + landing shake
-  c[0] += 6 * Math.sin(t * 1.7) + 3 * Math.sin(t * 3.9);
-  c[1] += 5 * Math.sin(t * 1.3 + 1);
-  if (t > T.jump1) { const k = t - T.jump1; c[1] += 22 * Math.exp(-k * 8) * Math.sin(k * 45); }
+  c[0] += 6 * Math.sin(t * 1.7) + 3 * Math.sin(t * 3.9); c[1] += 5 * Math.sin(t * 1.3 + 1);
+  const shake = (at, amp) => { if (t > at) { const k = t - at; c[1] += amp * Math.exp(-k * 8) * Math.sin(k * 45); c[0] += amp * 0.6 * Math.exp(-k * 8) * Math.sin(k * 37); } };
+  shake(T.jump1, 22); T.strikes.forEach(s => shake(s, 14)); shake(T.eq0 + 0.1, 8);
   return { x: c[0], y: c[1], z: c[2], r: c[3] };
 }
 function applyCam(ctx, C) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.translate(W / 2, H / 2); ctx.rotate(C.r); ctx.scale(C.z, C.z); ctx.translate(-C.x, -C.y); }
-function toScreen(C, x, y) { const dx = (x - C.x) * C.z, dy = (y - C.y) * C.z, cs = Math.cos(C.r), sn = Math.sin(C.r); return [W / 2 + dx * cs - dy * sn, H / 2 + dx * sn + dy * cs]; }
 
 // ---------- paper ----------
 let paperPat = null, backPat = null;
@@ -188,8 +217,6 @@ function makePaper(tint) {
   for (let i = 0; i < 140; i++) { const a = r() * 6.28, px = r() * 512, py = r() * 512, l = 6 + r() * 18; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l); x.stroke(); }
   return c;
 }
-
-// wobbly stroke helpers (boil = 12 Hz)
 let BOIL = 0;
 function jit(seed, amp) { return (hash(seed + BOIL * 17.31) - 0.5) * 2 * amp; }
 function wline(ctx, pts, amp = 1.6, seed = 1, closed = false) {
@@ -202,97 +229,101 @@ function wline(ctx, pts, amp = 1.6, seed = 1, closed = false) {
   ctx.stroke();
 }
 function circPts(cx, cy, r, n = 14, ry) { const p = []; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; p.push([cx + Math.cos(a) * r, cy + Math.sin(a) * (ry || r)]); } return p; }
+const GRAPHITE = "rgba(48,48,56,0.92)", PENCIL2 = "rgba(48,48,56,0.7)", BALL = "#2340a8", RED = "#d3202c";
 
-const GRAPHITE = "rgba(48,48,56,0.92)", BALL = "#2340a8", RED = "#d3202c";
-
-function drawPaper(ctx, C, newPage) {
+function drawPaper(ctx, C, opts = {}) {
   ctx.save();
-  // desk beyond page
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#3a2a20"; ctx.fillRect(0, 0, W, H);
   applyCam(ctx, C);
-  const x0 = -900, x1 = 7600, y0 = -1500, y1 = 2100;
-  ctx.fillStyle = ctx.createPattern(paperPat, "repeat"); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-  // visible bounds (approx)
+  ctx.fillStyle = ctx.createPattern(paperPat, "repeat"); ctx.fillRect(-900, -1500, 18000, 3600);
   const R = 1400 / C.z, bx0 = C.x - R, bx1 = C.x + R, by0 = C.y - R, by1 = C.y + R;
   ctx.strokeStyle = "rgba(70,130,200,0.32)"; ctx.lineWidth = 1.6; ctx.beginPath();
   const g = 48;
   for (let x = Math.floor(bx0 / g) * g; x < bx1; x += g) { ctx.moveTo(x, by0); ctx.lineTo(x, by1); }
   for (let y = Math.floor(by0 / g) * g; y < by1; y += g) { ctx.moveTo(bx0, y); ctx.lineTo(bx1, y); }
   ctx.stroke();
-  // margin line
   ctx.strokeStyle = "rgba(220,40,60,0.85)"; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(MARGIN, by0); ctx.lineTo(MARGIN, by1); ctx.stroke();
-  // spine shadow
   const sg = ctx.createLinearGradient(SPINE - 60, 0, SPINE + 90, 0);
   sg.addColorStop(0, "rgba(0,0,0,0)"); sg.addColorStop(0.42, "rgba(60,40,20,0.22)"); sg.addColorStop(0.5, "rgba(40,25,10,0.34)"); sg.addColorStop(0.6, "rgba(60,40,20,0.16)"); sg.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = sg; ctx.fillRect(SPINE - 60, by0, 150, by1 - by0);
-  // staples
   ctx.fillStyle = "rgba(150,150,160,0.9)"; for (const sy of [-200, 1300]) ctx.fillRect(SPINE - 3, sy, 6, 120);
   ctx.restore();
 }
-
 function drawText(ctx, s, x, y, font, color, rot = 0, alpha = 1) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.font = font; ctx.fillStyle = color; ctx.globalAlpha = alpha; ctx.textBaseline = "alphabetic"; ctx.fillText(s, 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.font = font; ctx.fillStyle = color; ctx.globalAlpha = alpha; ctx.fillText(s, 0, 0); ctx.restore();
 }
 
 // ---------- characters ----------
 function stickman(ctx, x, y, pose, seed, scale = 1) {
-  // y = feet
   ctx.save(); ctx.translate(x, y); ctx.scale(scale * (pose.flip || 1), scale);
   ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 7; ctx.lineCap = "round"; ctx.lineJoin = "round";
-  const ph = pose.run || 0, amp = pose.runAmp || 0;
-  const hip = [0, -78 + (pose.crouch || 0)], neck = [6 * amp + (pose.lean || 0), -140 + (pose.crouch || 0)];
+  const ph = pose.run || 0, amp = pose.runAmp || 0, cr = pose.crouch || 0;
+  const hip = [0, -78 + cr], neck = [6 * amp + (pose.lean || 0), -140 + cr * 1.4];
   const head = [neck[0] + 4 * amp + (pose.lean || 0) * 0.4, neck[1] - 30];
   wline(ctx, circPts(head[0], head[1], 25, 12), 1.4, seed, true);
-  wline(ctx, [neck, [lerp(neck[0], hip[0], 0.5), -110], hip], 1.5, seed + 9);
-  const leg = (s) => { const a = Math.sin(ph + s) * 0.9 * amp + (pose.legSpread ?? 0.28) * (s ? 1 : -1); const knee = [hip[0] + Math.sin(a) * 40, hip[1] + Math.cos(a) * 40]; const b = a - Math.max(0, Math.sin(ph + s + 1.2)) * 1.2 * amp; return [hip, knee, [knee[0] + Math.sin(b) * 40, knee[1] + Math.cos(b) * 40]]; };
+  wline(ctx, [neck, [lerp(neck[0], hip[0], 0.5), lerp(neck[1], hip[1], 0.5)], hip], 1.5, seed + 9);
+  const leg = (s) => { const a = Math.sin(ph + s) * 0.9 * amp + (pose.legSpread ?? 0.28) * (s ? 1 : -1); const kl = 40 - cr * 0.25; const knee = [hip[0] + Math.sin(a) * kl + cr * 0.4 * (s ? 1 : -1), hip[1] + Math.cos(a) * kl]; const b = a - Math.max(0, Math.sin(ph + s + 1.2)) * 1.2 * amp; return [hip, knee, [knee[0] + Math.sin(b) * 40, knee[1] + Math.cos(b) * 40]]; };
   wline(ctx, leg(0), 1.5, seed + 20); wline(ctx, leg(Math.PI), 1.5, seed + 30);
   const sh = [lerp(neck[0], hip[0], 0.2), lerp(neck[1], hip[1], 0.2)];
-  const arm = (s) => { const a = (pose.armUp ? -2.6 : 0) + Math.sin(ph + s + Math.PI) * 1.0 * amp + (pose.armOut ?? 0.5) * (s ? 1 : -1); const el = [sh[0] + Math.sin(a) * 34, sh[1] + Math.cos(a) * 34]; const b = a + 0.9 * amp + (pose.armUp ? 0.3 : 0.3); return [sh, el, [el[0] + Math.sin(b) * 32, el[1] + Math.cos(b) * 32]]; };
+  const arm = (s) => {
+    let a = (pose.armUp ? -2.6 : 0) + Math.sin(ph + s + Math.PI) * 1.0 * amp + (pose.armOut ?? 0.5) * (s ? 1 : -1);
+    if (pose.wave !== undefined && s === 0) a = -2.5 + 0.55 * Math.sin(pose.wave);
+    if (pose.sneak) a = s ? 1.2 : -0.9;
+    const el = [sh[0] + Math.sin(a) * 34, sh[1] + Math.cos(a) * 34]; const b = a + 0.3 + 0.9 * amp + (pose.sneak ? (s ? -1.2 : 1.4) : 0);
+    return [sh, el, [el[0] + Math.sin(b) * 32, el[1] + Math.cos(b) * 32]];
+  };
   wline(ctx, arm(0), 1.5, seed + 40); wline(ctx, arm(Math.PI), 1.5, seed + 50);
-  // eyes
-  if (pose.eyes !== false) { ctx.fillStyle = GRAPHITE; const ex = head[0] + 8 + (pose.look || 0) * 4; ctx.beginPath(); ctx.arc(ex, head[1] - 4, 3.2, 0, 7); ctx.arc(ex + 11, head[1] - 4, 3.2, 0, 7); ctx.fill(); }
+  ctx.fillStyle = GRAPHITE; const ex = head[0] + 8 + (pose.look || 0) * 4;
+  ctx.beginPath(); ctx.arc(ex, head[1] - 4, 3.2, 0, 7); ctx.arc(ex + 11, head[1] - 4, 3.2, 0, 7); ctx.fill();
+  if (pose.whistle) { ctx.beginPath(); ctx.arc(head[0] + 22, head[1] + 10, 4.5, 0, 7); ctx.lineWidth = 3; ctx.stroke(); }
+  if (pose.smile) { ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(head[0] + 13, head[1] + 4, 9, 0.3, 2.6); ctx.stroke(); }
+  ctx.restore();
+}
+function note(ctx, x, y, s, a) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.globalAlpha = a; ctx.fillStyle = GRAPHITE; ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.ellipse(0, 0, 11, 8, -0.4, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(9, -3); ctx.lineTo(9, -42); ctx.quadraticCurveTo(22, -34, 24, -18); ctx.stroke(); ctx.restore();
+}
+function bubble(ctx, x, y, text, k, tail, seed, size = 58) {
+  if (k <= 0) return;
+  ctx.save(); ctx.font = `700 ${size}px Caveat`; const w = ctx.measureText(text).width + 50, h = size * 1.35;
+  const s = easeOutBack(clamp(k * 1.4)); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = "rgba(250,248,240,0.96)"; ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 5;
+  const pts = [[-w / 2, -h / 2], [0, -h / 2 - 6], [w / 2, -h / 2], [w / 2 + 8, 0], [w / 2, h / 2], [tail[0] + 30, h / 2], [tail[0], tail[1]], [tail[0] - 4, h / 2], [-w / 2, h / 2], [-w / 2 - 8, 0]];
+  ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill();
+  wline(ctx, pts, 1.4, seed, true);
+  ctx.fillStyle = GRAPHITE; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, 0, 4);
   ctx.restore();
 }
 
 function drawCar(ctx, c, t, driver) {
   ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.scale(c.scl * (1 + c.sq * 0.5), c.scl * (1 - c.sq));
   ctx.lineCap = "round"; ctx.lineJoin = "round";
-  // speed lines (graphite)
   const sp = clamp(Math.abs(c.v) / 1300);
-  if (sp > 0.1) { ctx.strokeStyle = `rgba(60,60,70,${0.55 * sp})`; ctx.lineWidth = 4; for (let i = 0; i < 4; i++) { const yy = -100 + i * 26, l = 80 + 90 * sp + jit(i * 7, 20); wline(ctx, [[-170 - 20 * i % 2, yy], [-170 - l, yy + 2]], 1.5, 300 + i); } }
-  // driver
-  if (driver) {
-    ctx.save(); ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 6.5;
-    wline(ctx, circPts(-8, -112, 21, 12), 1.3, 61, true);
-    wline(ctx, [[-10, -90], [-14, -58]], 1.2, 62);
-    wline(ctx, [[-12, -78], [18, -70], [34, -84]], 1.2, 63); // arm on wheel
-    ctx.fillStyle = GRAPHITE; ctx.beginPath(); ctx.arc(2, -116, 3, 0, 7); ctx.arc(12, -116, 3, 0, 7); ctx.fill();
-    ctx.restore();
-  }
-  // body: ballpoint doodle
+  if (sp > 0.1) { ctx.strokeStyle = `rgba(60,60,70,${0.55 * sp})`; ctx.lineWidth = 4; for (let i = 0; i < 4; i++) { const yy = -100 + i * 26, l = 80 + 90 * sp + jit(i * 7, 20); wline(ctx, [[-170, yy], [-170 - l, yy + 2]], 1.5, 300 + i); } }
   ctx.strokeStyle = BALL; ctx.lineWidth = 6;
   const body = [[-150, -10], [-150, -55], [-110, -62], [-70, -120], [40, -122], [80, -66], [145, -56], [152, -14], [120, -8], [-130, -8]];
-  // hatch fill
   ctx.save(); ctx.beginPath(); ctx.moveTo(body[0][0], body[0][1]); for (const p of body) ctx.lineTo(p[0], p[1]); ctx.closePath(); ctx.clip();
   ctx.strokeStyle = "rgba(35,64,168,0.38)"; ctx.lineWidth = 3;
   for (let i = -300; i < 300; i += 13) { ctx.beginPath(); ctx.moveTo(i + jit(i, 2), 0); ctx.lineTo(i + 120 + jit(i + 1, 2), -130); ctx.stroke(); }
-  // window cut
-  ctx.fillStyle = "rgba(250,248,240,0.0)"; ctx.restore();
+  ctx.restore();
   ctx.strokeStyle = BALL; ctx.lineWidth = 6; wline(ctx, body, 1.6, 71, true);
-  // windows (paper showing through)
-  ctx.save(); ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "rgba(246,243,232,0.94)";
   ctx.beginPath(); ctx.moveTo(-58, -110); ctx.lineTo(-90, -66); ctx.lineTo(-25, -66); ctx.lineTo(-25, -110); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.moveTo(-12, -110); ctx.lineTo(32, -110); ctx.lineTo(62, -66); ctx.lineTo(-12, -66); ctx.closePath(); ctx.fill();
-  ctx.restore();
-  if (driver) { ctx.save(); ctx.beginPath(); ctx.moveTo(-12, -110); ctx.lineTo(32, -110); ctx.lineTo(62, -66); ctx.lineTo(-90, -66); ctx.lineTo(-58, -110); ctx.closePath(); ctx.clip(); ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 6.5; wline(ctx, circPts(8, -96, 20, 12), 1.3, 64, true); ctx.fillStyle = GRAPHITE; ctx.beginPath(); ctx.arc(16, -100, 3, 0, 7); ctx.arc(26, -100, 3, 0, 7); ctx.fill(); wline(ctx, [[6, -76], [4, -60]], 1, 65); ctx.restore(); }
+  if (driver) {
+    ctx.save(); ctx.beginPath(); ctx.moveTo(-12, -110); ctx.lineTo(32, -110); ctx.lineTo(62, -66); ctx.lineTo(-12, -66); ctx.closePath(); ctx.clip();
+    ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 6.5; const bob = 3 * Math.sin(t * 18);
+    wline(ctx, circPts(10, -94 + bob, 20, 12), 1.3, 64, true);
+    ctx.fillStyle = GRAPHITE; ctx.beginPath(); ctx.arc(18, -98 + bob, 3, 0, 7); ctx.arc(28, -98 + bob, 3, 0, 7); ctx.fill();
+    if (t > 10.8 && t < 12.2) { ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(24, -88 + bob, 7, 0.2, 2.9); ctx.stroke(); }
+    ctx.restore();
+  }
   ctx.lineWidth = 4.5; ctx.strokeStyle = BALL;
   wline(ctx, [[-58, -110], [-90, -66], [-25, -66], [-25, -110]], 1.2, 72, true);
   wline(ctx, [[-12, -110], [32, -110], [62, -66], [-12, -66]], 1.2, 73, true);
-  wline(ctx, [[-20, -40], [0, -40]], 1, 74); // door handle
-  // headlight + beam
+  wline(ctx, [[-20, -40], [0, -40]], 1, 74);
   ctx.fillStyle = "#f1c40f"; ctx.beginPath(); ctx.arc(140, -40, 9, 0, 7); ctx.fill();
-  // wheels with spin scribble
   const rotW = carGroundX(t) / 48;
   for (const wx of [-95, 95]) {
     ctx.fillStyle = "rgba(246,243,232,1)"; ctx.beginPath(); ctx.arc(wx, -6, 33, 0, 7); ctx.fill();
@@ -314,154 +345,181 @@ function blotShape(ctx, x, y, r, t) {
 }
 function drawBlot(ctx, t) {
   const { x, y, r } = BLOT;
-  // wobble when he dives in
   let wob = 0; if (t > T.hide - 0.05) { const k = t - T.hide + 0.05; wob = 0.06 * Math.exp(-k * 6) * Math.sin(k * 28); }
+  if (t > 20.62) { const k = t - 20.62; wob += 0.035 * Math.exp(-k * 7) * Math.sin(k * 30); } // shiver when spotted
+  if (t > T.raise0) wob += 0.008 * Math.sin(t * 50) * smr(t, T.raise0, 22.8); // trembling
   ctx.save(); ctx.translate(x, y); ctx.scale(1 + wob, 1 - wob); ctx.translate(-x, -y);
-  ctx.fillStyle = "rgba(20,24,48,0.12)"; blotShape(ctx, x + 6, y + 8, r * 1.06, t); ctx.fill(); // bleed
+  ctx.fillStyle = "rgba(20,24,48,0.12)"; blotShape(ctx, x + 6, y + 8, r * 1.06, t); ctx.fill();
   const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r * 1.2);
   g.addColorStop(0, "#252a4a"); g.addColorStop(0.6, "#0e1024"); g.addColorStop(1, "#05060f");
   ctx.fillStyle = g; blotShape(ctx, x, y, r, t); ctx.fill();
-  // splatters
   const rr = rng(4242);
   for (let i = 0; i < 11; i++) { const a = rr() * 6.28, d = r * (1.25 + rr() * 0.6), s = 6 + rr() * 16; ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.9, s, 0, 7); ctx.fill(); }
-  // gloss (wet ink)
   ctx.fillStyle = "rgba(255,255,255,0.22)"; ctx.beginPath(); ctx.ellipse(x - r * 0.38, y - r * 0.42, r * 0.22, r * 0.09, -0.6, 0, 7); ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.beginPath(); ctx.ellipse(x - r * 0.12, y - r * 0.6, r * 0.07, r * 0.03, -0.4, 0, 7); ctx.fill();
   ctx.restore();
 }
 
-// ---------- old page world ----------
-function inkTrail(ctx, t) {
-  const tEnd = Math.min(t, T.penDown1);
-  if (tEnd <= T.penIn + 0.05) return;
+function inkTrail(ctx, t0, t1) {
+  if (t1 <= t0) return;
   ctx.save(); ctx.strokeStyle = RED; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.lineWidth = 7;
   ctx.beginPath(); let started = false;
-  for (let s = T.penIn + 0.05; s <= tEnd + 1e-6; s += 1 / 120) {
-    const p = pen(s); if (!p.down) { started = false; continue; }
-    if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+  const i0 = Math.ceil(t0 * PR), i1 = Math.floor(t1 * PR);
+  for (let i = i0; i <= i1; i++) {
+    const p = PEN[i]; if (!(p[2] < 3 && p[0] > -9000)) { started = false; continue; }
+    if (!started) { ctx.moveTo(p[0], p[1]); started = true; } else ctx.lineTo(p[0], p[1]);
   }
-  const p = pen(tEnd); if (p.down && started) ctx.lineTo(p.x, p.y);
+  const p = pen(t1); if (p.down && started) ctx.lineTo(p.x, p.y);
   ctx.stroke(); ctx.restore();
 }
 
-function drawOldWorld(ctx, t, C) {
-  drawPaper(ctx, C, false);
-  applyCam(ctx, C);
+// ---------- doodles ----------
+function doodles(ctx) {
   ctx.lineCap = "round"; ctx.lineJoin = "round";
-  // classroom header (ballpoint)
-  drawText(ctx, "Двадцать шестое ноября", 1560, 110, "400 74px Caveat", BALL, -0.015, 0.9);
-  drawText(ctx, "Классная работа", 1680, 196, "400 74px Caveat", BALL, -0.01, 0.9);
-  // doodles
-  ctx.strokeStyle = "rgba(48,48,56,0.7)"; ctx.lineWidth = 5;
+  drawText(ctx, "November 26th", 1560, 110, "400 74px Caveat", BALL, -0.015, 0.9);
+  drawText(ctx, "Classwork", 1690, 196, "400 74px Caveat", BALL, -0.01, 0.9);
+  ctx.strokeStyle = PENCIL2; ctx.lineWidth = 5;
   wline(ctx, circPts(260, 120, 50, 12), 1.4, 900, true);
   for (let i = 0; i < 8; i++) { const a = i / 8 * 6.28; wline(ctx, [[260 + Math.cos(a) * 68, 120 + Math.sin(a) * 68], [260 + Math.cos(a) * 98, 120 + Math.sin(a) * 98]], 1.2, 910 + i); }
-  drawText(ctx, "2 + 2 = 5", 2480, 960, "400 82px Caveat", "rgba(48,48,56,0.8)", 0.03);
-  ctx.strokeStyle = "rgba(48,48,56,0.75)"; ctx.lineWidth = 5; wline(ctx, [[2470, 935], [2760, 925]], 2, 930); wline(ctx, [[2470, 912], [2770, 945]], 2, 931);
-  drawText(ctx, "№ 128", 3200, 230, "400 70px Caveat", BALL, -0.02, 0.85);
-  // margin grade
-  drawText(ctx, "2", 4380, 900, "700 260px Caveat", RED, 0.08, 0.92);
-  ctx.strokeStyle = RED; ctx.lineWidth = 5; ctx.globalAlpha = 0.9; wline(ctx, circPts(4450, 820, 150, 16, 130), 3, 940, true); ctx.globalAlpha = 1;
-  drawText(ctx, "Где д/з?!", 4290, 330, "700 64px Caveat", RED, -0.05, 0.9);
+  // house
+  wline(ctx, [[2760, 1080], [2760, 930], [2940, 930], [2940, 1080]], 1.5, 1001); wline(ctx, [[2740, 935], [2850, 840], [2960, 935]], 1.5, 1002);
+  wline(ctx, [[2830, 1080], [2830, 1010], [2870, 1010], [2870, 1080]], 1.2, 1003); wline(ctx, [[2785, 960], [2815, 960], [2815, 990], [2785, 990]], 1.2, 1004, true);
+  // tree
+  wline(ctx, [[3620, 320], [3620, 230]], 1.4, 1010); wline(ctx, circPts(3620, 180, 70, 12, 60), 3, 1011, true);
+  drawText(ctx, "Ex. 128", 4300, 230, "400 70px Caveat", BALL, -0.02, 0.85);
+  // heart with initials
+  ctx.strokeStyle = "rgba(200,40,60,0.6)";
+  wline(ctx, [[5200, 1020], [5120, 940], [5130, 890], [5170, 880], [5200, 915], [5230, 880], [5270, 890], [5280, 940], [5200, 1020]], 1.5, 1020);
+  drawText(ctx, "A + K", 5150, 960, "700 40px Caveat", "rgba(200,40,60,0.75)");
+  // the math mistake
+  drawText(ctx, "2 + 2 =", EQ.x, EQ.y, "400 82px Caveat", "rgba(48,48,56,0.85)", 0.02);
+  drawText(ctx, "5", EQ.x + 318, EQ.y, "400 82px Caveat", "rgba(48,48,56,0.85)", 0.02);
+  // spiral
+  ctx.strokeStyle = PENCIL2; const sp = []; for (let i = 0; i < 50; i++) { const a = i * 0.45; sp.push([8200 + Math.cos(a) * i * 1.6, 230 + Math.sin(a) * i * 1.6]); } wline(ctx, sp, 1, 1030);
+  // tic-tac-toe
+  wline(ctx, [[9760, 900], [9760, 1080]], 1.4, 1040); wline(ctx, [[9820, 900], [9820, 1080]], 1.4, 1041); wline(ctx, [[9700, 960], [9880, 960]], 1.4, 1042); wline(ctx, [[9700, 1020], [9880, 1020]], 1.4, 1043);
+  wline(ctx, [[9712, 912], [9748, 948]], 1, 1044); wline(ctx, [[9748, 912], [9712, 948]], 1, 1045); wline(ctx, circPts(9790, 990, 18, 10), 1, 1046, true); wline(ctx, [[9832, 1032], [9868, 1068]], 1, 1047); wline(ctx, [[9868, 1032], [9832, 1068]], 1, 1048);
+  drawText(ctx, "Don't forget gym clothes!", 10900, 230, "400 66px Caveat", BALL, -0.02, 0.85);
+  // cloud
+  wline(ctx, [[12300, 260], [12290, 220], [12330, 190], [12380, 195], [12420, 165], [12480, 175], [12500, 215], [12540, 230], [12520, 265], [12300, 260]], 1.6, 1050);
+  // margin grade + note
+  drawText(ctx, "F", MARGIN + 140, 900, "700 260px Caveat", RED, 0.08, 0.92);
+  ctx.strokeStyle = RED; ctx.lineWidth = 5; ctx.globalAlpha = 0.9; wline(ctx, circPts(MARGIN + 200, 820, 150, 16, 130), 3, 940, true); ctx.globalAlpha = 1;
+  drawText(ctx, "Homework?!", MARGIN + 30, 330, "700 64px Caveat", RED, -0.05, 0.9);
   // pencil ramp
   ctx.strokeStyle = GRAPHITE; ctx.lineWidth = 6;
-  wline(ctx, [[3880, laneY(3880) + 2], [4120, laneY(4120) - 70], [4120, laneY(4120) + 2], [3880, laneY(3880) + 2]], 1.3, 950);
-  ctx.lineWidth = 3; for (let i = 0; i < 9; i++) { const xx = 3900 + i * 26; wline(ctx, [[xx, laneY(xx) + 2], [xx + 18, laneY(xx) - (xx + 18 - 3880) * 0.29]], 1, 960 + i); }
-  // title
-  drawTitle(ctx, t);
-  // skid marks after landing
-  if (t > T.jump1) {
-    const xe = carGroundX(Math.min(t, T.stop + 0.1));
-    ctx.strokeStyle = "rgba(48,48,56,0.45)"; ctx.lineWidth = 9;
-    for (const dx of [-95, 95]) wline(ctx, [[4980 + dx, LANE + 2], [Math.max(4980, xe) + dx, LANE + 4]], 1.5, 970 + dx);
-  }
-  inkTrail(ctx, t);
-  // abandoned / moving car + stickman
-  const c = car(t);
-  const driverIn = t >= T.hop + 0.22 && t < T.out;
-  // car shadow during jump
-  if (c.arc > 2) {
-    ctx.save(); ctx.fillStyle = `rgba(30,30,40,${0.18 * (1 - c.arc / 600)})`; ctx.filter = `blur(${4 + c.arc / 30}px)`;
-    ctx.beginPath(); ctx.ellipse(c.x + c.arc * 0.25, laneY(c.x) - 4, 150 + c.arc * 0.1, 20, 0, 0, 7); ctx.fill(); ctx.restore();
-  }
-  // stickman outside the car
-  if (t < T.hop + 0.22) {
-    let sx = 690, sy = LANE, pose = { look: 1, eyes: true };
-    if (t < 0.75) { pose.crouch = 4 * Math.sin(t * 8); pose.armOut = 0.15 * Math.sin(t * 6); if (t > 0.35) pose.look = 1.5; }
-    else if (t < T.hop) { const k = smr(t, 0.75, T.hop); sx = lerp(690, 800, k); pose = { run: t * 26, runAmp: 1, lean: 10, look: 1 }; }
-    else { const k = clamp((t - T.hop) / 0.22); sx = lerp(800, 892, k); sy = LANE - 95 * Math.sin(Math.PI * k) + 50 * k; pose = { armUp: true, legSpread: 0.5, look: 1 }; }
-    stickman(ctx, sx, sy, pose, 500);
-  }
-  drawCar(ctx, c, t, driverIn);
-  // landing dust
-  if (t > T.jump1 && t < T.jump1 + 0.8) {
-    const k = (t - T.jump1) / 0.8, rr = rng(777);
-    ctx.fillStyle = `rgba(60,60,70,${0.5 * (1 - k)})`;
-    for (let i = 0; i < 26; i++) { const a = Math.PI + rr() * Math.PI, d = 40 + 220 * easeOutCubic(k) * (0.4 + rr()); ctx.beginPath(); ctx.arc(4980 + Math.cos(a) * d * 1.4, LANE + Math.sin(a) * d * 0.45, 3 + rr() * 6 * (1 - k), 0, 7); ctx.fill(); }
-  }
-  // stickman runs to blot
-  if (t >= T.out && t < T.hide + 0.1) {
-    const k = clamp((t - T.out) / (T.hide - T.out));
-    const sx = lerp(5250, BLOT.x - 10, sm(k)), sy = LANE - 120 * Math.sin(Math.PI * clamp(k * 2.2)) ;
-    stickman(ctx, sx, sy, k < 0.45 ? { armUp: true, legSpread: 0.4 } : { run: t * 30, runAmp: 1, lean: 14 }, 520);
-  }
-  drawBlot(ctx, t);
-  // eyes peeking
-  if (t > 7.0) {
-    const k = smr(t, 7.0, 7.2), px = pen(t).x, look = clamp((px - BLOT.x) / 300, -1, 1);
-    const ex = BLOT.x + 40, ey = BLOT.y - BLOT.r * 0.86 - 4 * k;
-    const blink = (t > 7.45 && t < 7.52) ? 0.15 : 1;
-    ctx.fillStyle = `rgba(255,255,255,${k})`;
-    ctx.beginPath(); ctx.ellipse(ex, ey, 13, 15 * blink, 0, 0, 7); ctx.ellipse(ex + 34, ey, 13, 15 * blink, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = `rgba(10,10,20,${k})`;
-    ctx.beginPath(); ctx.arc(ex + look * 6, ey + 2, 5 * blink, 0, 7); ctx.arc(ex + 34 + look * 6, ey + 2, 5 * blink, 0, 7); ctx.fill();
-  }
+  wline(ctx, [[RAMP0, LANE + 2], [RAMP1, LANE - 70], [RAMP1, LANE + 2], [RAMP0, LANE + 2]], 1.3, 950);
+  ctx.lineWidth = 3; for (let i = 0; i < 9; i++) { const xx = RAMP0 + 20 + i * 24; wline(ctx, [[xx, LANE + 2], [xx + 16, LANE - (xx + 16 - RAMP0) * 0.29]], 1, 960 + i); }
 }
 
 function drawTitle(ctx, t) {
-  const s = "GTA: ТЕТРАДЬ", x0 = 330, y0 = 380;
-  ctx.save(); ctx.font = "112px RubikMono";
+  const s = "GTA: NOTEBOOK", x0 = 300, y0 = 330;
+  ctx.save(); ctx.font = "100px RubikMono";
   let x = x0;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i], w = ctx.measureText(ch).width;
     const ti = 0.08 + i * 0.055, k = clamp((t - ti) / 0.28);
     if (k > 0 && ch !== " ") {
       const sc = lerp(2.3, 1, easeOutBack(k)), rot = (hash(i * 3.3) - 0.5) * 0.16 + (1 - k) * 0.4 * (hash(i) - 0.5);
-      ctx.save(); ctx.translate(x + w / 2, y0 - 40); ctx.rotate(rot); ctx.scale(sc, sc); ctx.globalAlpha = clamp(k * 3);
-      ctx.fillStyle = "rgba(20,20,28,0.16)"; ctx.fillText(ch, -w / 2 + 7, 47); // drop shadow
-      ctx.fillStyle = i < 4 ? "rgba(42,42,50,0.93)" : "rgba(42,42,50,0.93)"; ctx.fillText(ch, -w / 2, 40);
-      // hatching overlay inside letters (pencil grain)
+      ctx.save(); ctx.translate(x + w / 2, y0 - 36); ctx.rotate(rot); ctx.scale(sc, sc); ctx.globalAlpha = clamp(k * 3);
+      ctx.fillStyle = "rgba(20,20,28,0.16)"; ctx.fillText(ch, -w / 2 + 7, 43);
+      ctx.fillStyle = "rgba(42,42,50,0.93)"; ctx.fillText(ch, -w / 2, 36);
       ctx.globalCompositeOperation = "source-atop"; ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 2;
       for (let j = -80; j < 120; j += 7) { ctx.beginPath(); ctx.moveTo(j - w / 2, 60); ctx.lineTo(j - w / 2 + 70, -60); ctx.stroke(); }
       ctx.restore();
     }
     x += w * 0.98;
   }
-  // red underline written by hand
-  const k = smr(t, 0.75, 1.1);
-  if (k > 0) { ctx.strokeStyle = RED; ctx.lineWidth = 9; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x0, y0 + 40); const xe = lerp(x0, x, k); for (let xx = x0; xx <= xe; xx += 20) ctx.lineTo(xx, y0 + 40 + 6 * Math.sin(xx / 60)); ctx.stroke(); }
+  const k = smr(t, 0.9, 1.25);
+  if (k > 0) { ctx.strokeStyle = RED; ctx.lineWidth = 9; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x0, y0 + 36); const xe = lerp(x0, x, k); for (let xx = x0; xx <= xe; xx += 20) ctx.lineTo(xx, y0 + 36 + 6 * Math.sin(xx / 60)); ctx.stroke(); }
   ctx.restore();
 }
 
-// HUD stars: ink on the old page, screen space
+// ---------- old page ----------
+function drawOldWorld(ctx, t, C) {
+  drawPaper(ctx, C);
+  applyCam(ctx, C);
+  doodles(ctx);
+  drawTitle(ctx, t);
+  if (t > T.jump1) {
+    const xe = carGroundX(Math.min(t, T.stop + 0.1));
+    ctx.strokeStyle = "rgba(48,48,56,0.45)"; ctx.lineWidth = 9;
+    for (const dx of [-95, 95]) wline(ctx, [[LAND + dx, LANE + 2], [Math.max(LAND, xe) + dx, LANE + 4]], 1.5, 970 + dx);
+  }
+  inkTrail(ctx, T.penIn - 0.3, Math.min(t, T.turn0 + 0.2));
+  const c = car(t);
+  const driverIn = t >= T.hop + 0.25 && t < T.out;
+  if (c.arc > 2) {
+    ctx.save(); ctx.fillStyle = `rgba(30,30,40,${0.18 * (1 - c.arc / 600)})`; ctx.filter = `blur(${4 + c.arc / 30}px)`;
+    ctx.beginPath(); ctx.ellipse(c.x + c.arc * 0.25, laneY(c.x) - 4, 150 + c.arc * 0.1, 20, 0, 0, 7); ctx.fill(); ctx.restore();
+  }
+  // exhaust puffs while revving and launching
+  if (t > 2.6 && t < 3.9) {
+    const rr = rng(55); ctx.strokeStyle = PENCIL2; ctx.lineWidth = 4;
+    for (let i = 0; i < 7; i++) { const b = 2.6 + i * 0.16, k = (t - b) / 0.7; if (k < 0 || k > 1) continue; const px = 900 - 170 - 140 * k - 30 * rr(), py = LANE - 20 - 70 * k * rr(); ctx.globalAlpha = 1 - k; wline(ctx, circPts(px, py, 12 + 26 * k, 9), 1.5, 600 + i, true); }
+    ctx.globalAlpha = 1;
+  }
+  // stickman before the heist
+  if (t < T.hop + 0.25) {
+    let sx = 690, sy = LANE, pose = { look: 1, whistle: t < T.notice };
+    if (t < T.notice) { pose.crouch = 4 * Math.sin(t * 8); pose.armOut = 0.35; }
+    else if (t < 1.9) {
+      if (t > 1.3 && t < 1.6) { pose.flip = -1; pose.look = 1; } else pose.look = 1.5;
+      if (t > 1.6) pose.smile = true;
+    } else if (t < T.hop) { const k = smr(t, 1.9, T.hop); sx = lerp(690, 800, k); pose = { run: t * 14, runAmp: 0.6, sneak: true, crouch: 22, lean: 14, look: 1.5, smile: true }; }
+    else { const k = clamp((t - T.hop) / 0.25); sx = lerp(800, 892, k); sy = LANE - 95 * Math.sin(Math.PI * k) + 50 * k; pose = { armUp: true, legSpread: 0.5, look: 1 }; }
+    stickman(ctx, sx, sy, pose, 500);
+    if (t < T.notice) for (let i = 0; i < 3; i++) { const b = i * 0.3, k = (t - b) / 0.9; if (k > 0 && k < 1) note(ctx, 740 + 60 * k + 15 * Math.sin(k * 8), 420 - 110 * k, 0.9 + 0.3 * k, Math.sin(Math.PI * k)); }
+    if (t > T.notice && t < 1.5) { const k = smr(t, T.notice, T.notice + 0.12); drawText(ctx, "!", 705, 380 - 10 * k, "700 90px Caveat", GRAPHITE, 0.1, k); }
+    bubble(ctx, 470, 440, "Nice ride...", (t - 1.1) / 0.3 * (t < 1.95 ? 1 : 0), [150, 70], 777, 54);
+  }
+  drawCar(ctx, c, t, driverIn);
+  bubble(ctx, c.x - 20, c.y - 240, "Ha-ha!", (t - 10.8) / 0.25 * (t < 12.0 ? 1 : 0), [10, 70], 778);
+  bubble(ctx, c.x - 20, c.y - 240, "Hold on!", (t - 14.95) / 0.25 * (t < 15.75 ? 1 : 0), [10, 70], 779);
+  if (t > T.jump1 && t < T.jump1 + 0.8) {
+    const k = (t - T.jump1) / 0.8, rr = rng(777);
+    ctx.fillStyle = `rgba(60,60,70,${0.5 * (1 - k)})`;
+    for (let i = 0; i < 26; i++) { const a = Math.PI + rr() * Math.PI, d = 40 + 220 * easeOutCubic(k) * (0.4 + rr()); ctx.beginPath(); ctx.arc(LAND + Math.cos(a) * d * 1.4, LANE + Math.sin(a) * d * 0.45, 3 + rr() * 6 * (1 - k), 0, 7); ctx.fill(); }
+  }
+  if (t >= T.out && t < T.hide + 0.1) {
+    const k = clamp((t - T.out) / (T.hide - T.out));
+    const sx = lerp(14900, BLOT.x - 10, sm(k)), sy = LANE - 120 * Math.sin(Math.PI * clamp(k * 2.2));
+    stickman(ctx, sx, sy, k < 0.45 ? { armUp: true, legSpread: 0.4 } : { run: t * 30, runAmp: 1, lean: 14 }, 520);
+  }
+  drawBlot(ctx, t);
+  // eyes peeking (duck when spotted, back - terrified - during the wind-up)
+  const vis = smr(t, 19.6, 19.8) * (1 - smr(t, 20.62, 20.7)) + smr(t, 22.2, 22.4);
+  if (vis > 0.01) {
+    const px = pen(t).x, look = clamp((px - BLOT.x) / 300, -1, 1), big = t > 22 ? 1.3 : 1;
+    const ex = BLOT.x + 40, ey = BLOT.y - BLOT.r * 0.86 - 4 * vis;
+    const blink = (t > 20.1 && t < 20.17) ? 0.15 : 1;
+    ctx.fillStyle = `rgba(255,255,255,${vis})`;
+    ctx.beginPath(); ctx.ellipse(ex, ey, 13 * big, 15 * blink * big, 0, 0, 7); ctx.ellipse(ex + 34, ey, 13 * big, 15 * blink * big, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(10,10,20,${vis})`;
+    ctx.beginPath(); ctx.arc(ex + look * 6, ey + 2, 5 * blink, 0, 7); ctx.arc(ex + 34 + look * 6, ey + 2, 5 * blink, 0, 7); ctx.fill();
+    if (t > 22.3) { ctx.fillStyle = `rgba(120,170,255,${vis * 0.9})`; const d = ((t - 22.3) * 2) % 1; ctx.beginPath(); ctx.ellipse(ex - 20, ey - 10 + 30 * d, 5, 8, 0, 0, 7); ctx.fill(); } // sweat drop
+  }
+}
+
 function starPath(cx, cy, R, r) { const p = []; for (let i = 0; i <= 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r : R; p.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); } return p; }
 function drawHUD(ctx, t) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  let sx = 0, sy = 0; T.strikes.forEach(s => { if (t > s && t < s + 0.4) { const k = t - s; sx += 10 * Math.exp(-k * 10) * Math.sin(k * 80); sy += 8 * Math.exp(-k * 10) * Math.cos(k * 70); } });
   for (let i = 0; i < 3; i++) {
     const ts = T.stars[i], k = clamp((t - ts + 0.12) / 0.26); if (k <= 0) continue;
-    const cx = W - 420 + i * 132, cy = 118;
+    const cx = W - 420 + i * 132 + sx, cy = 118 + sy;
     let alpha = 1;
-    if (t > 6.6 && t < T.turn0) alpha = (Math.floor((t - 6.6) / 0.2) % 2) ? 0.25 : 1; // searching blink
-    const pop = 1 + 0.35 * Math.exp(-(t - ts - 0.14) * 9) * (t > ts + 0.14 ? 1 : 0);
+    if (t > T.search && t < T.turn0) alpha = (Math.floor((t - T.search) / 0.2) % 2) ? 0.25 : 1;
+    const pp = i === 2 ? 0.7 : 0.35;
+    const pop = 1 + pp * Math.exp(-(t - ts - 0.14) * 9) * (t > ts + 0.14 ? 1 : 0);
     ctx.save(); ctx.globalAlpha = alpha; ctx.translate(cx, cy); ctx.scale(pop, pop); ctx.translate(-cx, -cy);
-    const pts = starPath(cx, cy, 54, 23);
-    // stroke progressively
-    const total = 10, f = k * total;
+    const pts = starPath(cx, cy, 54, 23), f = k * 10;
     ctx.strokeStyle = RED; ctx.lineWidth = 7; ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
     for (let j = 1; j <= Math.floor(f); j++) ctx.lineTo(pts[j][0], pts[j][1]);
-    const j = Math.floor(f); if (j < total) { const r = f - j; ctx.lineTo(lerp(pts[j][0], pts[j + 1][0], r), lerp(pts[j][1], pts[j + 1][1], r)); }
+    const j = Math.floor(f); if (j < 10) { const r = f - j; ctx.lineTo(lerp(pts[j][0], pts[j + 1][0], r), lerp(pts[j][1], pts[j + 1][1], r)); }
     ctx.stroke();
-    if (k >= 1) { // ink scribble fill
+    if (k >= 1) {
       ctx.save(); ctx.beginPath(); pts.forEach((p, q) => q ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.clip();
       ctx.lineWidth = 6; const fk = clamp((t - ts - 0.14) / 0.12);
       for (let y = cy - 56; y < cy - 56 + 112 * fk; y += 9) { ctx.beginPath(); ctx.moveTo(cx - 60, y); ctx.lineTo(cx + 60, y + 6); ctx.stroke(); }
@@ -471,71 +529,63 @@ function drawHUD(ctx, t) {
   }
 }
 
-// ---------- new page world ----------
+// ---------- new page ----------
 function drawNewWorld(ctx, t, C) {
-  drawPaper(ctx, C, true);
+  drawPaper(ctx, C);
   applyCam(ctx, C);
-  drawText(ctx, "Двадцать седьмое ноября", 5000, 330, "400 74px Caveat", BALL, -0.015, 0.9);
-  drawText(ctx, "Домашняя работа", 5120, 416, "400 74px Caveat", BALL, -0.01, 0.9);
-  // red question mark by the pen
-  if (t > T.q0) {
-    const k = clamp((t - T.q0) / (T.q1 - T.q0));
-    ctx.save(); ctx.strokeStyle = RED; ctx.lineWidth = 9; ctx.lineCap = "round"; ctx.lineJoin = "round";
-    const n = Math.floor(k * (QPTS.length - 1)); ctx.beginPath();
-    for (let i = 0; i <= n && i < QPTS.length - 2; i++) { const p = QPTS[i]; i ? ctx.lineTo(QX + p[0], QY + p[1]) : ctx.moveTo(QX + p[0], QY + p[1]); }
-    if (n < QPTS.length - 2) { const q = qPath(k); ctx.lineTo(QX + q[0], QY + q[1]); }
-    ctx.stroke();
-    if (k >= 1) { ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(QX, QY + 18, 9, 0, 7); ctx.fill(); }
-    ctx.restore();
-  }
-  // caption written left→right
+  drawText(ctx, "November 27th", QX - 620, 330, "400 74px Caveat", BALL, -0.015, 0.9);
+  drawText(ctx, "Homework", QX - 470, 416, "400 74px Caveat", BALL, -0.01, 0.9);
+  inkTrail(ctx, T.q0 - 0.05, Math.min(t, T.q1 + 0.03));
+  if (t > T.q1) { ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(QX, QY + 18, 9 * smr(t, T.q1, T.q1 + 0.05), 0, 7); ctx.fill(); }
   if (t > T.cap) {
-    const k = smr(t, T.cap, T.cap + 0.6);
-    ctx.save(); ctx.font = "700 170px Caveat"; const s = "Розыск снят.", w = ctx.measureText(s).width;
-    const x = 5700 - w / 2, y = 920;
+    const k = smr(t, T.cap, T.cap + 0.7);
+    ctx.save(); ctx.font = "700 128px Caveat"; const s = "Wanted level: cleared.", w = ctx.measureText(s).width;
+    const x = QX - w / 2, y = 920;
     ctx.beginPath(); ctx.rect(x - 20, y - 200, (w + 40) * k, 280); ctx.clip();
     ctx.fillStyle = BALL; ctx.translate(x, y); ctx.rotate(-0.02); ctx.fillText(s, 0, 0); ctx.restore();
-    const k2 = smr(t, 9.5, 9.8);
-    if (k2 > 0) { ctx.save(); ctx.globalAlpha = k2; ctx.font = "44px RubikMono"; ctx.fillStyle = "rgba(42,42,50,0.9)"; const s2 = "GTA: ТЕТРАДЬ"; const w2 = ctx.measureText(s2).width; ctx.translate(5700 - w2 / 2, 1000 + 20 * (1 - k2)); ctx.fillText(s2, 0, 0); ctx.restore(); }
+    const k2 = smr(t, T.logo, T.logo + 0.3);
+    if (k2 > 0) { ctx.save(); ctx.globalAlpha = k2; ctx.font = "44px RubikMono"; ctx.fillStyle = "rgba(42,42,50,0.9)"; const s2 = "GTA: NOTEBOOK"; const w2 = ctx.measureText(s2).width; ctx.translate(QX - w2 / 2, 1000 + 20 * (1 - k2)); ctx.fillText(s2, 0, 0); ctx.restore(); }
   }
 }
+// what is under the corner of the new page: our hero, waving goodbye
+function drawUnder(ctx, t, C) {
+  drawPaper(ctx, C);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.save(); ctx.translate(W - 165, H - 30); ctx.scale(C.z * 0.78, C.z * 0.78);
+  // half of the car peeking in
+  ctx.save(); ctx.translate(250, 0); drawCar(ctx, { x: 0, y: 0, rot: 0, scl: 1, sq: 0, arc: 0, v: 0 }, t, false); ctx.restore();
+  stickman(ctx, 0, 0, { wave: t * 16, look: -0.5, smile: true }, 530);
+  ctx.restore();
+}
 
-// ---------- real objects above paper ----------
+// ---------- objects above the paper ----------
 function drawPen(ctx, t, C) {
   const p = pen(t);
-  if (t < T.penIn - 0.25) return;
+  if (p.x < -9000) return;
   applyCam(ctx, C);
-  const L = 600, Wd = 50;
-  const dir = [Math.cos(p.ang), Math.sin(p.ang)];
-  // shadow: diverges with height along body
-  ctx.save(); ctx.filter = `blur(${6 + p.h / 18}px)`; ctx.fillStyle = `rgba(20,15,10,${0.26 - p.h / 2500})`;
+  const L = 600, Wd = 50, dir = [Math.cos(p.ang), Math.sin(p.ang)], nrm = [-dir[1], dir[0]];
+  ctx.save(); ctx.filter = `blur(${6 + p.h / 18}px)`; ctx.fillStyle = `rgba(20,15,10,${Math.max(0.05, 0.26 - p.h / 2500)})`;
   const off = (s) => [p.x + dir[0] * s + 0.18 * s + p.h * 0.55, p.y + dir[1] * s + 0.3 * s + p.h * 0.8];
-  const nrm = [-dir[1], dir[0]];
   const a = off(0), b = off(L);
   ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0] + nrm[0] * Wd / 2, b[1] + nrm[1] * Wd / 2); ctx.lineTo(b[0] - nrm[0] * Wd / 2, b[1] - nrm[1] * Wd / 2); ctx.closePath(); ctx.fill();
   ctx.restore();
-  // body (elevated: slight parallax lift away from camera center)
   const lift = 1 + p.h / 2200;
   ctx.save(); ctx.translate(p.x - p.h * 0.05, p.y - p.h * 0.12); ctx.scale(lift, lift); ctx.rotate(p.ang);
-  // tip cone
   ctx.fillStyle = "#c9c9cf"; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(40, -12); ctx.lineTo(40, 12); ctx.closePath(); ctx.fill();
   ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(1, 0, 4, 0, 7); ctx.fill();
   const cyl = (x0, x1, c0, c1, c2) => { const g = ctx.createLinearGradient(0, -Wd / 2, 0, Wd / 2); g.addColorStop(0, c0); g.addColorStop(0.32, c1); g.addColorStop(0.5, c2); g.addColorStop(1, c0); ctx.fillStyle = g; ctx.fillRect(x0, -Wd / 2, x1 - x0, Wd); };
-  // transparent grip
   ctx.fillStyle = "#e8e8ee"; ctx.beginPath(); ctx.moveTo(40, -12); ctx.lineTo(95, -Wd / 2); ctx.lineTo(95, Wd / 2); ctx.lineTo(40, 12); ctx.fill();
   cyl(95, 230, "#7a0d14", "#e23a44", "#ff9aa0");
   ctx.strokeStyle = "rgba(90,0,10,0.5)"; ctx.lineWidth = 3; for (let x = 105; x < 225; x += 12) { ctx.beginPath(); ctx.moveTo(x, -Wd / 2); ctx.lineTo(x, Wd / 2); ctx.stroke(); }
   cyl(230, L - 60, "#8a1219", "#d8262f", "#ff7b82");
-  // ink refill visible line
   ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(250, -Wd / 2 + 9, L - 330, 4);
-  // brand-free label
-  ctx.save(); ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.font = "700 22px Inter"; ctx.fillText("ПРОВЕРЕНО", 300, 8); ctx.restore();
-  // cap + clip
+  ctx.save(); ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = "700 22px Inter"; ctx.fillText("GRADED", 320, 8); ctx.restore();
   cyl(L - 60, L, "#333", "#777", "#bbb");
   ctx.fillStyle = "#9aa"; ctx.fillRect(L - 150, -Wd / 2 - 8, 130, 10);
   ctx.restore();
-  // siren glow at cap end
-  if (t < T.turn0 + 0.3) {
+  // angry puffs while correcting the math
+  if (t > 9.2 && t < 10.4) { ctx.strokeStyle = "rgba(90,90,100,0.6)"; ctx.lineWidth = 4; for (let i = 0; i < 3; i++) { const k = ((t - 9.2) * 1.6 + i / 3) % 1; const ex = p.x + dir[0] * 560 + 30 * k * (i - 1), ey = p.y + dir[1] * 560 - 120 * k; ctx.globalAlpha = 1 - k; wline(ctx, circPts(ex, ey, 8 + 14 * k, 8), 1, 700 + i, true); } ctx.globalAlpha = 1; }
+  if (t > T.penIn - 0.3 && t < T.turn0 + 0.3) {
     const end = [p.x - p.h * 0.05 + dir[0] * (L - 20) * lift, p.y - p.h * 0.12 + dir[1] * (L - 20) * lift];
     const phase = Math.floor(t / 0.16) % 2, col = phase ? "255,40,50" : "40,90,255";
     const g = ctx.createRadialGradient(end[0], end[1], 0, end[0], end[1], 260);
@@ -544,20 +594,22 @@ function drawPen(ctx, t, C) {
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(end[0], end[1], 260, 0, 7); ctx.fill(); ctx.restore();
   }
 }
-
 function drawForeground(ctx, t, C) {
-  // pink eraser in S2, yellow pencil in S3: close to the lens -> fast parallax + defocus
   const fg = (wx, wy, f, fn, blur) => {
     const dx = (wx - C.x) * C.z * f, dy = (wy - C.y) * C.z * f;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.translate(W / 2 + dx, H / 2 + dy); ctx.rotate(C.r); ctx.scale(C.z * f, C.z * f);
     ctx.save(); ctx.filter = `blur(${blur}px)`; fn(); ctx.restore();
   };
-  if (t > 2.3 && t < 4.3) fg(2900, 1010, 1.75, () => {
+  if (t > 4.0 && t < 7.5) fg(5000, 1010, 1.75, () => {
     ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(-140, -50, 300, 130);
     ctx.fillStyle = "#f08aa0"; ctx.fillRect(-150, -70, 300, 120); ctx.fillStyle = "#5a7bd8"; ctx.fillRect(40, -70, 110, 120);
     ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.fillRect(-150, -70, 300, 18);
   }, 14);
-  if (t > 4.0 && t < 6.3) fg(4560, 900, 1.8, () => {
+  if (t > 11.5 && t < 15.5) fg(12200, 130, 1.7, () => { // ruler
+    ctx.rotate(-0.12); ctx.fillStyle = "rgba(210,230,240,0.75)"; ctx.fillRect(-700, -55, 1400, 110);
+    ctx.fillStyle = "rgba(40,60,80,0.7)"; for (let i = -690; i < 700; i += 24) ctx.fillRect(i, -55, 3, i % 120 === 0 ? 40 : 22);
+  }, 12);
+  if (t > 15.4 && t < 18.3) fg(14200, 900, 1.8, () => {
     ctx.rotate(-0.22);
     ctx.fillStyle = "#f2c230"; ctx.fillRect(-420, -30, 760, 60); ctx.fillStyle = "#d9a520"; ctx.fillRect(-420, 8, 760, 22);
     ctx.fillStyle = "#e9c9a0"; ctx.beginPath(); ctx.moveTo(340, -30); ctx.lineTo(450, 0); ctx.lineTo(340, 30); ctx.fill();
@@ -566,60 +618,62 @@ function drawForeground(ctx, t, C) {
   }, 16);
 }
 
-// ---------- page turn composite ----------
-function composite(ctx, t, C) {
-  // A: old page with HUD
-  aCtx.setTransform(1, 0, 0, 1, 0, 0);
-  drawOldWorld(aCtx, t, C); drawHUD(aCtx, t);
-  if (t < T.turn0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(cA, 0, 0); return; }
-  bCtx.setTransform(1, 0, 0, 1, 0, 0); drawNewWorld(bCtx, t, C);
-  const p = clamp((t - T.turn0) / (T.turn1 - T.turn0));
-  if (p >= 1) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(cB, 0, 0); return; }
-  const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-  const Cx = W + 40, Cy = H + 40;
-  const Px = lerp(Cx - 10, -W * 1.35, e), Py = lerp(Cy - 10, H * 0.25, e) - 260 * Math.sin(Math.PI * e);
+// ---------- page fold: top sheet curls from corner C towards P ----------
+function fold(ctx, top, under, Cx, Cy, Px, Py) {
   let ux = Cx - Px, uy = Cy - Py; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
   const Mx = (Cx + Px) / 2, My = (Cy + Py) / 2, vx = -uy, vy = ux, Lg = 6000;
   const half = (sgn) => { ctx.beginPath(); ctx.moveTo(Mx + vx * Lg, My + vy * Lg); ctx.lineTo(Mx - vx * Lg, My - vy * Lg); ctx.lineTo(Mx - vx * Lg + sgn * ux * Lg, My - vy * Lg + sgn * uy * Lg); ctx.lineTo(Mx + vx * Lg + sgn * ux * Lg, My + vy * Lg + sgn * uy * Lg); ctx.closePath(); };
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(cB, 0, 0);
-  // shadow on new page beyond the fold
+  ctx.drawImage(under, 0, 0);
   ctx.save(); half(1); ctx.clip();
   let g = ctx.createLinearGradient(Mx, My, Mx + ux * 260, My + uy * 260); g.addColorStop(0, "rgba(30,20,10,0.38)"); g.addColorStop(1, "rgba(30,20,10,0)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
-  // old page remaining
-  ctx.save(); half(-1); ctx.clip(); ctx.drawImage(cA, 0, 0);
-  // flap cast shadow on old page
+  ctx.save(); half(-1); ctx.clip(); ctx.drawImage(top, 0, 0);
   g = ctx.createLinearGradient(Mx, My, Mx - ux * 220, My - uy * 220); g.addColorStop(0, "rgba(20,10,0,0.0)"); g.addColorStop(0.15, "rgba(20,10,0,0.35)"); g.addColorStop(1, "rgba(20,10,0,0)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
-  // flap (back side of the page) = reflection of the lifted part
   const d = Mx * ux + My * uy;
-  ctx.save();
-  half(-1); ctx.clip();
+  ctx.save(); half(-1); ctx.clip();
   ctx.transform(1 - 2 * ux * ux, -2 * ux * uy, -2 * ux * uy, 1 - 2 * uy * uy, 2 * d * ux, 2 * d * uy);
   half(1); ctx.clip(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
   ctx.fillStyle = ctx.createPattern(backPat, "repeat"); ctx.fillRect(0, 0, W, H);
-  ctx.globalAlpha = 0.13; ctx.drawImage(cA, 0, 0); ctx.globalAlpha = 1; // show-through
-  // curl shading: dark near fold, lighter towards the corner
+  ctx.globalAlpha = 0.13; ctx.drawImage(top, 0, 0); ctx.globalAlpha = 1;
   g = ctx.createLinearGradient(Mx, My, Mx + ux * 900, My + uy * 900);
   g.addColorStop(0, "rgba(90,70,40,0.35)"); g.addColorStop(0.08, "rgba(255,255,255,0.18)"); g.addColorStop(0.4, "rgba(0,0,0,0.0)"); g.addColorStop(1, "rgba(60,40,20,0.18)");
   ctx.fillStyle = g; ctx.fillRect(-W, -H, 3 * W, 3 * H);
   ctx.restore();
-  // fold highlight line
   ctx.save(); ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(Mx + vx * Lg, My + vy * Lg); ctx.lineTo(Mx - vx * Lg, My - vy * Lg); ctx.stroke(); ctx.restore();
 }
-
+function composite(ctx, t, C) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (t < T.turn0) { drawOldWorld(aCtx, t, C); drawHUD(aCtx, t); ctx.drawImage(cA, 0, 0); return; }
+  drawNewWorld(bCtx, t, C);
+  if (t < T.turn1) {
+    drawOldWorld(aCtx, t, C); drawHUD(aCtx, t);
+    const p = clamp((t - T.turn0) / (T.turn1 - T.turn0)), e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+    const Cx = W + 40, Cy = H + 40;
+    fold(ctx, cA, cB, Cx, Cy, lerp(Cx - 10, -W * 1.35, e), lerp(Cy - 10, H * 0.25, e) - 260 * Math.sin(Math.PI * e));
+    return;
+  }
+  if (t > T.peel0 && t < T.peel1) {
+    drawUnder(uCtx, t, C);
+    let e = 0;
+    if (t < 27.35) e = easeOutBack((t - T.peel0) / 0.35) ; else if (t < 28.35) e = 1 + 0.02 * Math.sin((t - 27.35) * 9); else e = 1 - Math.pow(clamp((t - 28.35) / 0.2), 2);
+    const Cx = W + 20, Cy = H + 20;
+    fold(ctx, cB, cU, Cx, Cy, lerp(Cx - 2, W - 470, e), lerp(Cy - 2, H - 400, e));
+    return;
+  }
+  ctx.drawImage(cB, 0, 0);
+}
 function grade(ctx, t) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  // warm window light from top-left + vignette
-  let g = ctx.createRadialGradient(W * 0.3, H * 0.2, 100, W * 0.5, H * 0.5, W * 0.75);
+  const g = ctx.createRadialGradient(W * 0.3, H * 0.2, 100, W * 0.5, H * 0.5, W * 0.75);
   g.addColorStop(0, "rgba(255,240,200,0.10)"); g.addColorStop(0.6, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(30,15,0,0.38)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // siren tint washing over the page during the chase
-  const s = smr(t, 2.1, 2.5) * (1 - smr(t, 7.6, 7.9));
+  const s = smr(t, T.penIn + 0.1, T.penIn + 0.5) * (1 - smr(t, T.turn0 - 0.2, T.turn0 + 0.1));
   if (s > 0) { const ph = Math.floor(t / 0.16) % 2; ctx.fillStyle = ph ? `rgba(255,30,40,${0.045 * s})` : `rgba(30,80,255,${0.045 * s})`; ctx.fillRect(0, 0, W, H); }
+  // fade from black at the very start
+  if (t < 0.25) { ctx.fillStyle = `rgba(0,0,0,${1 - t / 0.25})`; ctx.fillRect(0, 0, W, H); }
 }
-
 function renderAt(ctx, t) {
   BOIL = Math.floor(t * 12);
   const C = cam(t);
@@ -629,8 +683,6 @@ function renderAt(ctx, t) {
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "none";
   grade(ctx, t);
 }
-
-// motion blur: average sub-frames across a 180° shutter
 const SUB = 4;
 function renderFrame(i) {
   const t0 = i / FPS;
@@ -645,11 +697,10 @@ function renderFrame(i) {
 }
 window.renderFrame = renderFrame;
 window.ready = (async () => {
-  await Promise.all(["400 40px Caveat", "700 40px Caveat", "40px RubikMono", "700 20px Inter"].map(f => document.fonts.load(f, "АБВабвGTA?")));
+  await Promise.all(["400 40px Caveat", "700 40px Caveat", "40px RubikMono", "700 20px Inter"].map(f => document.fonts.load(f, "AaGTA?")));
   paperPat = makePaper("#f7f4ea"); backPat = makePaper("#efe9da");
   return true;
 })();
-// interactive preview
 window.ready.then(() => {
   if (location.hash === "#render") return;
   const t0 = performance.now();

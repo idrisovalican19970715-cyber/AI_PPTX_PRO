@@ -16,7 +16,7 @@ const fs = require('fs'), path = require('path');
   } else {
     const ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', '24', '-i', '-', '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-pix_fmt', 'yuv420p', process.argv[3]], { stdio: ['pipe', 'inherit', 'inherit'] });
     const t0 = Date.now();
-    for (let i = 0; i < 240; i++) { const buf = await grab(i); if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once('drain', r)); if (i % 40 === 0) console.log('frame', i, ((Date.now() - t0) / 1000).toFixed(1) + 's'); }
+    for (let i = 0; i < 720; i++) { const buf = await grab(i); if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once('drain', r)); if (i % 40 === 0) console.log('frame', i, ((Date.now() - t0) / 1000).toFixed(1) + 's'); }
     ff.stdin.end(); await new Promise(r => ff.on('close', r));
   }
   await b.close();
